@@ -1,13 +1,8 @@
-# Ignore compiled Java classes
-echo "*.class" >> .gitignore
-
-# Ignore sensitive keys and keystores (SECURITY BEST PRACTICE)
-echo "*.jks" >> .gitignore
-echo "*.key" >> .gitignore
-echo "*.pem" >> .gitignore
-echo "*.csr" >> .gitignore
-echo "*.srl" >> .gitignore
-echo "*.crt" >> .gitignore
-
-# Ignore the log file (so it doesn't get overwritten by others)
-echo "audit_log.txt" >> .gitignore
+*.class
+*.jks
+*.key
+*.pem
+*.csr
+*.srl
+*.crt
+audit_log.txt

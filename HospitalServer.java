@@ -5,17 +5,27 @@ import java.util.HashMap;
 import java.util.Map;
 
 public class HospitalServer {
+
     private static final int PORT = 9876;
+
+    // In-memory database and division mapping for the demo
     private static Map<String, MedicalRecord> database = new HashMap<>();
+    protected static Map<String, String> userDivisions = new HashMap<>();
     private static AuditLogger logger = new AuditLogger();
 
     public static void main(String[] args) {
-        // 1. Setup Data
+        // Populate dummy records to test our access control rules
         database.put("101", new MedicalRecord("101", "Alice", "DrBob", "NurseEve", "Cardiology", "Heart looks good"));
         database.put("102", new MedicalRecord("102", "Charlie", "DrBob", "NurseEve", "Cardiology", "High blood pressure"));
         database.put("103", new MedicalRecord("103", "Alice", "DrWho", "NurseJoy", "Radiology", "X-Ray negative"));
 
-        // 2. Setup TLS
+        // Map hospital staff to their respective divisions
+        userDivisions.put("DrBob", "Cardiology");
+        userDivisions.put("NurseEve", "Cardiology");
+        userDivisions.put("DrWho", "Radiology");
+        userDivisions.put("NurseJoy", "Radiology");
+
+        // Set up the server's keystore and truststore for TLS
         System.setProperty("javax.net.ssl.keyStore", "server.jks");
         System.setProperty("javax.net.ssl.keyStorePassword", "password");
         System.setProperty("javax.net.ssl.trustStore", "servertruststore.jks");
@@ -24,10 +34,13 @@ public class HospitalServer {
         try {
             SSLServerSocketFactory ssf = (SSLServerSocketFactory) SSLServerSocketFactory.getDefault();
             SSLServerSocket ssocket = (SSLServerSocket) ssf.createServerSocket(PORT);
-            ssocket.setNeedClientAuth(true); // Mutual Auth
+
+            // Force mutual authentication. Clients MUST provide a valid certificate
+            ssocket.setNeedClientAuth(true);
 
             System.out.println("Hospital Server Started on port " + PORT);
-
+            
+            // Listen for incoming client connections and handle them in new threads
             while (true) {
                 SSLSocket socket = (SSLSocket) ssocket.accept();
                 new Thread(new ClientHandler(socket)).start();
@@ -52,7 +65,7 @@ public class HospitalServer {
                 PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
                 BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()))
             ) {
-                // Identify User
+                // Extract the client's certificate to figure out who logged in
                 SSLSession session = socket.getSession();
                 X509Certificate cert = (X509Certificate) session.getPeerCertificates()[0];
                 String dn = cert.getSubjectX500Principal().getName();
@@ -60,33 +73,29 @@ public class HospitalServer {
 
                 out.println("Welcome " + userName + " (" + userRole + "). Connected securely.");
 
+                // Process client commands
                 String inputLine;
                 while ((inputLine = in.readLine()) != null) {
-                    String[] parts = inputLine.split(" ", 3);
-                    String action = parts[0];
-                    if (action.equalsIgnoreCase("EXIT")) break;
-
-                    String response = handleRequest(action, parts);
+                    if (inputLine.trim().equalsIgnoreCase("EXIT")) break;
+                    String response = handleRequest(inputLine);
                     out.println(response);
                 }
             } catch (Exception e) {
-                System.out.println("Client disconnected: " + e.getMessage());
+                System.out.println("Client disconnected.");
             }
         }
 
-        // ROBUST PARSER: Finds "CN=" anywhere in the string
+        // Helper to extract the Role and Name from the certificate's CN string (like CN=doctor_DrBob)
         private void parseIdentity(String dn) {
             String cn = "";
-            // Split by comma to handle standard DN format: "CN=doctor_DrBob, OU=..."
             String[] fields = dn.split(",");
             for (String field : fields) {
                 if (field.trim().startsWith("CN=")) {
-                    cn = field.trim().substring(3); // Remove "CN="
+                    cn = field.trim().substring(3);
                     break;
                 }
             }
             
-            // Now parse the Role_Name format
             String[] split = cn.split("_");
             if (split.length >= 2) {
                 userRole = split[0];
@@ -96,82 +105,119 @@ public class HospitalServer {
             }
         }
 
-        private String handleRequest(String action, String[] parts) {
-            if (parts.length < 2 && !action.equalsIgnoreCase("LIST")) return "ERROR: Missing arguments";
-            
-            String recordId = (parts.length > 1) ? parts[1] : "";
-            String data = (parts.length > 2) ? parts[2] : "";
+        // Parses the raw input string and executes the command if permitted
+        private String handleRequest(String inputLine) {
+            String[] parts = inputLine.split(" ", 4);
+            String actionName = parts[0].toUpperCase();
 
-            if (!hasAccess(action, recordId)) {
-                logger.log(userName, action, recordId, false);
+            // Handle the LIST command separately since it doesn't target a specific record ID
+            if (actionName.equals("LIST")) {
+                logger.log(userName, "LIST", "ALL", true);
+                StringBuilder sb = new StringBuilder("Your readable records: ");
+                boolean foundAny = false;
+                for (String id : database.keySet()) {
+                    if (hasAccess("READ", id)) { 
+                        sb.append(id).append(" ");
+                        foundAny = true;
+                    }
+                }
+                return foundAny ? sb.toString() : "You have no readable records.";
+            }
+
+            // Basic argument validation
+            if (parts.length < 2) {
+                return "ERROR: Missing target argument (Record ID or Patient Name).";
+            }
+            if (actionName.equals("CREATE") && parts.length < 4) {
+                return "ERROR: Format is CREATE <PatientName> <NurseName> <Data>";
+            }
+            
+            String target = parts[1]; 
+            
+            // Reference Monitor: Check if the action is allowed BEFORE doing anything
+            if (!hasAccess(actionName, target)) {
+                logger.log(userName, actionName, target, false); // Log denials
                 return "DENIED: You do not have permission.";
             }
 
-            logger.log(userName, action, recordId, true);
+            logger.log(userName, actionName, target, true); // Log allowed actions
             
-            // Execute Action
-            switch (action.toUpperCase()) {
-                case "READ":   return database.get(recordId).toString();
+            // Execute the requested action
+            switch (actionName) {
+                case "READ":   
+                    return database.get(target).toString();
                 case "DELETE": 
-                    database.remove(recordId); 
+                    database.remove(target); 
                     return "SUCCESS: Record deleted.";
                 case "WRITE":
-                    MedicalRecord r = database.get(recordId);
-                    if (r != null) { r.setMedicalData(data); return "SUCCESS: Record updated."; }
+                    MedicalRecord r = database.get(target);
+                    if (r != null) { 
+                        String writeData = "";
+                        if (parts.length > 2) writeData += parts[2];
+                        if (parts.length > 3) writeData += " " + parts[3];
+                        r.setMedicalData(writeData.trim()); 
+                        return "SUCCESS: Record updated."; 
+                    }
                     return "ERROR: Not found.";
                 case "CREATE":
+                    String nurseName = parts[2];
+                    String createData = parts[3];
                     String newId = String.valueOf(System.currentTimeMillis());
-                    // Create: ID, Patient, Doctor(User), Nurse(Arg1), Div(Arg2), Data(Arg3)
-                    MedicalRecord newRec = new MedicalRecord(newId, "NewPatient", userName, parts[1], "Div", data);
+                    String division = HospitalServer.userDivisions.getOrDefault(userName, "Unknown");
+                    
+                    MedicalRecord newRec = new MedicalRecord(newId, target, userName, nurseName, division, createData);
                     database.put(newId, newRec);
-                    return "SUCCESS: Created record " + newId;
-                default: return "ERROR: Unknown command";
+                    return "SUCCESS: Created record " + newId + " for patient " + target;
+                default: 
+                    return "ERROR: Unknown command";
             }
         }
-
         
-        private boolean hasAccess(String action, String recordId) {
-            MedicalRecord record = database.get(recordId);
+        // This acts as our Reference Monitor, enforcing the strict access control rules
+        private boolean hasAccess(String action, String argument) {
+            // Rule: Doctors can only create records if they already treat the patient
+            if (action.equalsIgnoreCase("CREATE")) {
+                if (!userRole.equalsIgnoreCase("doctor")) return false;
+                
+                boolean isTreating = false;
+                for (MedicalRecord r : database.values()) {
+                    if (r.getPatientName().equalsIgnoreCase(argument) && r.getDoctorName().equals(userName)) {
+                        isTreating = true;
+                        break;
+                    }
+                }
+                return isTreating;
+            }
 
-            // Special case: Create is only for doctors
-            if (action.equalsIgnoreCase("CREATE")) return userRole.equalsIgnoreCase("doctor");
-
+            MedicalRecord record = database.get(argument);
             if (record == null) return false;
 
+            String myDivision = HospitalServer.userDivisions.get(userName);
+
+            // Role-Based Access Control logic
             switch (userRole.toLowerCase()) {
                 case "agency":
-                
+                    // Agencies can read and delete everything, but cannot write or create
                     return action.equalsIgnoreCase("READ") || action.equalsIgnoreCase("DELETE");
-
                 case "doctor":
-                    // 1. Never allow DELETE
                     if (action.equalsIgnoreCase("DELETE")) return false;
-                    
-           
-                    if (record.getDoctorName().equals(userName)) return true; // (Write is implied allowed because Delete is blocked above)
-
-   
-                    if (action.equalsIgnoreCase("READ")) return true;
-                    
+                    // Full access if treating the patient
+                    if (record.getDoctorName().equals(userName)) return true; 
+                    // Read-only access if in the same division
+                    if (action.equalsIgnoreCase("READ") && record.getDivision().equals(myDivision)) return true;
                     return false;
-
                 case "nurse":
-                    // 1. Never allow DELETE (Fixing the security hole!)
-                    if (action.equalsIgnoreCase("DELETE")) return false;
-                    
-                 
+                    if (action.equalsIgnoreCase("DELETE") || action.equalsIgnoreCase("CREATE")) return false;
+                    // Full access if treating the patient
                     if (record.getNurseName().equals(userName)) return true;
-
-                    
-                    if (action.equalsIgnoreCase("READ")) return true;
-
+                    // Read-only access if in the same division
+                    if (action.equalsIgnoreCase("READ") && record.getDivision().equals(myDivision)) return true; 
                     return false;
-
                 case "patient":
-               
+                    // Patients can only read their own records
                     return action.equalsIgnoreCase("READ") && record.getPatientName().equals(userName);
-
                 default:
+                    // Default deny for unknown roles
                     return false;
             }
         }

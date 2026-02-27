@@ -1,61 +1,44 @@
 #!/bin/bash
 
-# Compile first to ensure we are testing the latest code
-echo "--- Compiling Java Code ---"
+# Recompile to ensure we are running the latest version of the code
 javac *.java
 
-# Function to run a test scenario
-# Usage: run_test "UserIdentity" "List of Commands"
+# Helper function to pipe a list of commands into the Java client
 run_test() {
     USER_ID=$1
     COMMANDS=$2
-    echo "---------------------------------------------------------"
     echo ">>> Testing User: $USER_ID"
-    echo "---------------------------------------------------------"
-    # pipe the commands into the java client
+    # The echo -e allows us to pass newlines (\n) to simulate pressing "Enter"
     echo -e "$COMMANDS" | java HospitalClient $USER_ID
-    echo ""
-    sleep 1 # pause briefly to let the server log write
+    echo "---------------------------------------------------------"
+    # Pause briefly to allow the server's AuditLogger thread to finish writing
+    sleep 1
 }
 
-# --- SCENARIO 1: DOCTOR (DrBob) ---
-# Goal: Prove he can Read/Write/Create, but CANNOT Delete.
-# Commands:
-# 1. READ 101 (Success)
-# 2. WRITE 101 (Success)
-# 3. CREATE (Success)
-# 4. DELETE 101 (FAIL - Critical Security Check)
-CMDS_DOCTOR="READ 101\nWRITE 101 DrBob_Updated_This\nCREATE NurseEve Radiology Bob BrokenLeg\nDELETE 101\nEXIT"
+# SCENARIO 1: DOCTOR
+# DrBob treats Alice (101) and Charlie (102) in Cardiology.
+# Proves: Read/Write access for treating doctor, Create access for existing patient, blocks cross-division reading (103), blocks Delete.
+CMDS_DOCTOR="READ 101\nWRITE 101 DrBob_Updated_This\nCREATE Alice NurseEve New_Xray_Data\nREAD 103\nDELETE 101\nEXIT"
 run_test "doctor_DrBob" "$CMDS_DOCTOR"
 
-# --- SCENARIO 2: NURSE (NurseEve) ---
-# Goal: Prove she can Read/Write (treating), but CANNOT Delete or Create.
-# Commands:
-# 1. READ 101 (Success - Treating Nurse)
-# 2. WRITE 101 (Success - Treating Nurse)
-# 3. CREATE (FAIL - Nurses can't create)
-# 4. DELETE 101 (FAIL - Nurses can't delete)
-CMDS_NURSE="READ 101\nWRITE 101 NurseEve_Updated_This\nCREATE DrBob Radiology Bob Flu\nDELETE 101\nEXIT"
+# SCENARIO 2: NURSE
+# NurseEve is in Cardiology and treats Alice (101). 
+# Proves: Read/Write for treating nurse, blocks Create (only doctors can), blocks Delete.
+CMDS_NURSE="READ 101\nWRITE 101 NurseEve_Updated_This\nCREATE DrBob NurseEve Flu\nDELETE 101\nEXIT"
 run_test "nurse_NurseEve" "$CMDS_NURSE"
 
-# --- SCENARIO 3: PATIENT (Alice) ---
-# Goal: Prove she can only read HER OWN record.
-# Commands:
-# 1. READ 101 (Success - Her record)
-# 2. READ 102 (FAIL - Charlie's record)
-# 3. DELETE 101 (FAIL)
-CMDS_PATIENT="READ 101\nREAD 102\nDELETE 101\nEXIT"
+# SCENARIO 3: PATIENT
+# Alice is a patient.
+# Proves: The LIST command works, she can read her own record (101), is blocked from others (102), and blocked from Delete.
+CMDS_PATIENT="LIST\nREAD 101\nREAD 102\nDELETE 101\nEXIT"
 run_test "patient_Alice" "$CMDS_PATIENT"
 
-# --- SCENARIO 4: AGENCY (GovOrg) ---
-# Goal: Prove they can DELETE records.
-# Commands:
-# 1. DELETE 101 (Success - Finally deleting the record)
+# SCENARIO 4: GOVERNMENT AGENCY
+# GovOrg is the agency.
+# Proves: They have the ultimate authority to delete records.
 CMDS_AGENCY="DELETE 101\nEXIT"
 run_test "agency_GovOrg" "$CMDS_AGENCY"
 
-echo "========================================================="
-echo "       TESTING COMPLETE - DISPLAYING AUDIT LOG           "
-echo "========================================================="
-# Print the last 20 lines of the log file so you can see the results immediately
-tail -n 20 audit_log.txt
+echo "--- AUDIT LOG ---"
+# Display the bottom of the log to prove all ALLOWED and DENIED actions were recorded
+tail -n 15 audit_log.txt

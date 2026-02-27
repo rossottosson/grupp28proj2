@@ -1,8 +1,16 @@
+# Compiled Java class files
 *.class
+
+# Runtime log files
+audit_log.txt
+
+# Mac OS junk files
+.DS_Store
+
+# Cryptographic material 
 *.jks
-*.key
 *.pem
+*.crt
 *.csr
 *.srl
-*.crt
-audit_log.txt
+*.key

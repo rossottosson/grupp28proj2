@@ -1,9 +1,8 @@
 #!/bin/bash
 
-# Hardcoded password for the sake of the project demo
+
 PW="password"
 
-# Clean up any old keys from previous runs so we start fresh
 rm *.jks *.crt *.csr *.key *.srl ca-cert.pem ca-key.pem 2>/dev/null
 
 echo "--- Generating Keys ---"

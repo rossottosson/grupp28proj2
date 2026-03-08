@@ -7,9 +7,6 @@ import java.time.LocalDateTime;
 public class AuditLogger {
     private static final String LOG_FILE = "audit_log.txt";
 
-    // The synchronized keyword is critical here. 
-    // Because our server uses multi-threading (handling multiple clients at once),
-    // we must ensure two threads don't try to write to the file at the exact same millisecond and corrupt the log.
     public synchronized void log(String user, String operation, String target, boolean success) {
         try (PrintWriter out = new PrintWriter(new FileWriter(LOG_FILE, true))) {
             String timestamp = LocalDateTime.now().toString();

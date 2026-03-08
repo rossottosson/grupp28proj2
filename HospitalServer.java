@@ -9,25 +9,22 @@ public class HospitalServer {
 
     private static final int PORT = 9876;
 
-    // In-memory database and division mapping for the demo
     private static Map<String, MedicalRecord> database = new ConcurrentHashMap<>();
     protected static Map<String, String> userDivisions = new HashMap<>();
     protected static Map<String, java.util.List<String>> treatingRelationships = new HashMap<>();
     private static AuditLogger logger = new AuditLogger();
+    private static java.util.concurrent.atomic.AtomicInteger recordCounter = new java.util.concurrent.atomic.AtomicInteger(103);
 
     public static void main(String[] args) {
-        // Populate dummy records to test our access control rules
         database.put("101", new MedicalRecord("101", "Alice", "DrBob", "NurseEve", "Cardiology", "Heart looks good"));
         database.put("102", new MedicalRecord("102", "Charlie", "DrBob", "NurseEve", "Cardiology", "High blood pressure"));
         database.put("103", new MedicalRecord("103", "Alice", "DrWho", "NurseJoy", "Radiology", "X-Ray negative"));
 
-        // Map hospital staff to their respective divisions
         userDivisions.put("DrBob", "Cardiology");
         userDivisions.put("NurseEve", "Cardiology");
         userDivisions.put("DrWho", "Radiology");
         userDivisions.put("NurseJoy", "Radiology");
 
-        // Define which doctors are officially treating which patients
         treatingRelationships.put("DrBob", java.util.Arrays.asList("Alice", "Charlie"));
         treatingRelationships.put("DrWho", java.util.Arrays.asList("Alice"));
 
@@ -41,7 +38,7 @@ public class HospitalServer {
             SSLServerSocketFactory ssf = (SSLServerSocketFactory) SSLServerSocketFactory.getDefault();
             SSLServerSocket ssocket = (SSLServerSocket) ssf.createServerSocket(PORT);
 
-            // Force mutual authentication. Clients MUST provide a valid certificate
+            // Force mutual authentication. Clients must provide a valid certificate
             ssocket.setNeedClientAuth(true);
 
             System.out.println("Hospital Server Started on port " + PORT);
@@ -131,7 +128,6 @@ public class HospitalServer {
                 return foundAny ? sb.toString() : "You have no readable records.";
             }
 
-            // Basic argument validation
             if (parts.length < 2) {
                 return "ERROR: Missing target argument (Record ID or Patient Name).";
             }
@@ -141,7 +137,7 @@ public class HospitalServer {
             
             String target = parts[1]; 
             
-            // Reference Monitor: Check if the action is allowed BEFORE doing anything
+            // Reference Monitor: Check if the action is allowed before doing anything
             if (!hasAccess(actionName, target)) {
                 logger.log(userName, actionName, target, false); // Log denials
                 return "DENIED: You do not have permission.";
@@ -169,7 +165,7 @@ public class HospitalServer {
                 case "CREATE":
                     String nurseName = parts[2];
                     String createData = parts[3];
-                    String newId = String.valueOf(100 + database.size() + 1);
+                    String newId = String.valueOf(recordCounter.incrementAndGet());
                     String division = HospitalServer.userDivisions.getOrDefault(userName, "Unknown");
                     
                     MedicalRecord newRec = new MedicalRecord(newId, target, userName, nurseName, division, createData);
@@ -180,16 +176,14 @@ public class HospitalServer {
             }
         }
         
-        // This acts as our Reference Monitor, enforcing the strict access control rules
+        // Reference Monitor enforcing the strict access control rules
         private boolean hasAccess(String action, String argument) {
             // Rule: Doctors can only create records if they already treat the patient
             if (action.equalsIgnoreCase("CREATE")) {
                 if (!userRole.equalsIgnoreCase("doctor")) return false;
                 
-                // NEW LOGIC: Look up the doctor's assigned patients in our new map
                 java.util.List<String> myPatients = HospitalServer.treatingRelationships.get(userName);
                 
-                // If the map has a list for this doctor, and the list contains the target patient, grant access
                 if (myPatients != null && myPatients.contains(argument)) {
                     return true;
                 }

@@ -9,7 +9,7 @@ public class HospitalClient {
     public static void main(String[] args) {
         Scanner console = new Scanner(System.in);
 
-        // 1. Welcome Banner & Login Prompt
+        // Welcome Banner & Login Prompt
         System.out.println("=========================================");
         System.out.println("   Welcome to the Secure Hospital System ");
         System.out.println("=========================================");
@@ -22,7 +22,7 @@ public class HospitalClient {
             System.out.println("No input detected. Defaulting to doctor_DrBob");
         }
 
-        // 2. Two-Factor Authentication: Prompt for the keystore password
+        // Two-Factor Authentication: Prompt for the keystore password
         System.out.print("Enter keystore password: ");
         String password = console.nextLine().trim();
 
@@ -47,10 +47,8 @@ public class HospitalClient {
             PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
             BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
 
-            // Read the welcome message from the server
             System.out.println(">> SERVER: " + in.readLine());
 
-            // Show the user what they can do
             printMenu();
 
             // Interactive REPL loop
@@ -58,24 +56,21 @@ public class HospitalClient {
                 System.out.print("\nEnter command: ");
                 String cmd = console.nextLine().trim();
                 
-                if (cmd.isEmpty()) continue; // Ignore accidental enter presses
+                if (cmd.isEmpty()) continue; 
                 
-                // Intercept local commands BEFORE sending to the server to prevent network desync
                 if (cmd.equalsIgnoreCase("HELP")) {
                     printMenu();
                     continue; 
                 }
 
                 if (cmd.equalsIgnoreCase("EXIT")) {
-                    out.println(cmd); // Tell the server we are leaving cleanly
+                    out.println(cmd); 
                     System.out.println("Logging out. Goodbye!");
                     break;
                 }
                 
-                // If it is a real command, send it to the server
                 out.println(cmd);
                 
-                // Print the server's response
                 System.out.println(">> RESPONSE: " + in.readLine());
             }
             socket.close();
@@ -87,7 +82,7 @@ public class HospitalClient {
         }
     }
 
-    // Helper method to display available actions clearly during the demo
+    // Helper method to display available actions to the user
     private static void printMenu() {
         System.out.println("\n--- Available Commands ---");
         System.out.println(" LIST                                              (View readable record IDs)");

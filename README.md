@@ -8,7 +8,7 @@ This is a secure, client-server medical record system implementing Mutual TLS, T
 
 ## Quick Start Guide
 
-1. Generate the Certificates and Keystores**
+1. Generate the Certificates and Keystores
 Before compiling or running the code, you must generate the CA, certificates, and keystores. Run the included bash script:
 ```bash
 bash generate_keys.sh
@@ -19,16 +19,17 @@ bash generate_keys.sh
 
 Bash
 javac *.java
+
 3. Start the Server
 In your first terminal window, start the central server (runs on port 9876):
-
 Bash
 java HospitalServer
+
 4. Start the Client
 In a second terminal window, launch the interactive client:
-
 Bash
 java HospitalClient
+
 Available Demo Users (Password for all is password):
 
 doctor_DrBob

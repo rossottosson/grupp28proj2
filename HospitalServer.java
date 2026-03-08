@@ -3,14 +3,16 @@ import java.io.*;
 import java.security.cert.X509Certificate;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class HospitalServer {
 
     private static final int PORT = 9876;
 
     // In-memory database and division mapping for the demo
-    private static Map<String, MedicalRecord> database = new HashMap<>();
+    private static Map<String, MedicalRecord> database = new ConcurrentHashMap<>();
     protected static Map<String, String> userDivisions = new HashMap<>();
+    protected static Map<String, java.util.List<String>> treatingRelationships = new HashMap<>();
     private static AuditLogger logger = new AuditLogger();
 
     public static void main(String[] args) {
@@ -24,6 +26,10 @@ public class HospitalServer {
         userDivisions.put("NurseEve", "Cardiology");
         userDivisions.put("DrWho", "Radiology");
         userDivisions.put("NurseJoy", "Radiology");
+
+        // Define which doctors are officially treating which patients
+        treatingRelationships.put("DrBob", java.util.Arrays.asList("Alice", "Charlie"));
+        treatingRelationships.put("DrWho", java.util.Arrays.asList("Alice"));
 
         // Set up the server's keystore and truststore for TLS
         System.setProperty("javax.net.ssl.keyStore", "server.jks");
@@ -67,6 +73,7 @@ public class HospitalServer {
             ) {
                 // Extract the client's certificate to figure out who logged in
                 SSLSession session = socket.getSession();
+                System.out.println(">> SECURITY INFO: Negotiated Cipher Suite: " + session.getCipherSuite());
                 X509Certificate cert = (X509Certificate) session.getPeerCertificates()[0];
                 String dn = cert.getSubjectX500Principal().getName();
                 parseIdentity(dn);
@@ -162,7 +169,7 @@ public class HospitalServer {
                 case "CREATE":
                     String nurseName = parts[2];
                     String createData = parts[3];
-                    String newId = String.valueOf(System.currentTimeMillis());
+                    String newId = String.valueOf(100 + database.size() + 1);
                     String division = HospitalServer.userDivisions.getOrDefault(userName, "Unknown");
                     
                     MedicalRecord newRec = new MedicalRecord(newId, target, userName, nurseName, division, createData);
@@ -179,14 +186,14 @@ public class HospitalServer {
             if (action.equalsIgnoreCase("CREATE")) {
                 if (!userRole.equalsIgnoreCase("doctor")) return false;
                 
-                boolean isTreating = false;
-                for (MedicalRecord r : database.values()) {
-                    if (r.getPatientName().equalsIgnoreCase(argument) && r.getDoctorName().equals(userName)) {
-                        isTreating = true;
-                        break;
-                    }
+                // NEW LOGIC: Look up the doctor's assigned patients in our new map
+                java.util.List<String> myPatients = HospitalServer.treatingRelationships.get(userName);
+                
+                // If the map has a list for this doctor, and the list contains the target patient, grant access
+                if (myPatients != null && myPatients.contains(argument)) {
+                    return true;
                 }
-                return isTreating;
+                return false;
             }
 
             MedicalRecord record = database.get(argument);
